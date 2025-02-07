@@ -1,0 +1,13 @@
+lab
+Sized Grid
+
+You are given a file that displays a grid of boxes.
+The starting size is 4 wide 3 high.
+
+You should add BLoC state to the program so that you
+can change the size of the grid.  You can have buttons
+that increment the width and the height, or you can have
+text fields to just type in new sizes.
+
+Submit on BrightSpace and GitHub.
+
