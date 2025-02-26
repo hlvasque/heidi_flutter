@@ -2,7 +2,7 @@
 
 import 'package:flutter/material.dart';
 import 'package:hydrated_bloc/hydrated_bloc.dart';
-import 'coords.dart';  // Assuming you have the `Coords` class to represent coordinates
+import 'coords.dart';
 
 class ChessState {
   List<List<String>> board; // 8x8 chessboard state
