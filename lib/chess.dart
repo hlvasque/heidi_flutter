@@ -1,5 +1,5 @@
 // chess.dart
-// Barrett Koster 2015
+// heidi 2025
 // This is starter code.  This is a pretty plain
 // chess shell that does NOT remember the state of
 // the game.
