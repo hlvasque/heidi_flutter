@@ -1,7 +1,5 @@
-// Barrett Koster
-// demo of Routing/Navigation
-// Thisis the first version, simple.  
-// The button names a new Route.
+// splash lab-Heidi
+//based on routes.dart
 
 import "package:flutter/material.dart";
 import "package:flutter_bloc/flutter_bloc.dart";
