@@ -38,6 +38,13 @@ dependencies:
   path_provider: ^2.1.5
   http: ^1.3.0
   web_socket_channel: ^3.0.2
+  flutter_swipe_detector: ^2.0.0
+  flutter_localizations:
+    sdk: flutter
+  intl: any
+  shared_preferences: ^2.5.3
+  audioplayers: ^6.4.0
+  record: ^6.0.0
 
 dev_dependencies:
   flutter_test:
@@ -56,11 +63,12 @@ dev_dependencies:
 
 # The following section is specific to Flutter packages.
 flutter:
-
   # The following line ensures that the Material Icons font is
   # included with your application, so that you can use the icons in
   # the material Icons class.
   uses-material-design: true
+  generate: true
+
 
   # To add assets to your application, add an assets section, like this:
   # assets:
@@ -68,6 +76,11 @@ flutter:
   #   - images/a_dot_ham.jpeg
   assets:
     - lib/StateCapitols.txt
+    - assets/x.mp3
+    - assets/y.mp4
+    - assets/connect4_sound_effect.mp4
+    - assets/connect4_win_sound_effect.mp4
+
 
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/to/resolution-aware-images
