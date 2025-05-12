@@ -16,7 +16,7 @@ void main() async
 { WidgetsFlutterBinding.ensureInitialized();
   Directory addx = await getApplicationDocumentsDirectory();
   String add = addx.path;
-  HydratedBloc.storage = await HydratedStorage.build
+  HydratedBloc.storage =  await HydratedStorage.build
   (  storageDirectory: HydratedStorageDirectory
     ( (await getApplicationDocumentsDirectory()).path,),
   );

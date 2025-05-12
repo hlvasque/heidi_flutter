@@ -1,4 +1,7 @@
-// server
+//server
+//goes first
+//plays RED
+//heidi- final project
 
 import 'dart:io';
 import 'dart:typed_data';
@@ -7,14 +10,15 @@ import 'dart:convert';
 import "package:flutter/material.dart";
 import "package:flutter_bloc/flutter_bloc.dart";
 import 'package:audioplayers/audioplayers.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:hydrated_bloc/hydrated_bloc.dart';
 
-const int COLUMNS = 7;  // Standard Connect 4 has 7 columns
-const int ROWS = 6;     // and 6 rows
+const int COLUMNS = 7;  //connect4 board has 7 cols
+const int ROWS = 6;     //and 6 rows
 
-// Player colors
 const int EMPTY = 0;
-const int RED = 1;      // Player 1 (Server)
-const int YELLOW = 2;   // Player 2 (Client)
+const int RED = 1;      //server goes FIRST and plays RED (us)
+const int YELLOW = 2;   //client plays YELLOW
 
 //vv-- for sound effect --vv
 class AState
@@ -23,31 +27,51 @@ class AState
   AState( this.thep);
   void play() // put these in the project/assets folder
   {
+    //this is the sound effect when a token is "dropped" into a column
     thep.play(AssetSource('connect4_sound_effect.mp4'));
   }
   void playWinSoundEffect(){
+    //this is the sound effect when a player wins
     thep.play( AssetSource('connect4_win_sound_effect.mp4'));
   }
 }
 
-
-// Game state
-// Game state
+//keeps track of the current game
+//and stores data like the board state, player scores, etc
+//has functions that check if a move is valid, etc
 class GameState {
-  List<List<int>> board = List.generate(ROWS, (_) => List.filled(COLUMNS, EMPTY));
-  bool isMyTurn = true; // Server starts the game
-  int myColor = RED;
-  int opponentColor = YELLOW;
-  bool gameOver = false;
-  int? winner;
+  List<List<int>> board = List.generate(ROWS, (_) => List.filled(COLUMNS, EMPTY)); //the board is initially empty
+  bool isMyTurn = true; //the server goes first by default
+  int myColor = RED; //server plays RED
+  int opponentColor = YELLOW; //client plays YELLOW
+  bool gameOver = false; //the game is initially NOT over
+  int? winner; //and we're initially NOT the winner
 
-  // Added score tracking
-  int playerScore = 0;  // Server (RED) score
-  int opponentScore = 0;  // Client (YELLOW) score
+  //vv-- keep track of scores --v
+  int playerScore = 0;
+  int opponentScore = 0;
 
   GameState();
 
-  // Convert to json
+  //(useful for Hydrated Cubit)
+  //deserializes board game & player scores for persistence across sessions
+  //we only keep track of player scores
+  //and the state of the connect 4 board
+  //we don't want to store variables that say whether we've connected to the client
+  //bc we'll have to reconnect each time our server anyways
+  void fromJson(Map<String, dynamic> json) {
+    board = List<List<int>>.from(
+      json['board'].map<List<int>>((row) => List<int>.from(row)),
+    );
+    isMyTurn = json['isMyTurn'] as bool;
+    gameOver = json['gameOver'] as bool;
+    winner = json['winner'];
+    playerScore = json['playerScore'] ?? 0;
+    opponentScore = json['opponentScore'] ?? 0;
+  }
+
+  //also useful for Hydrated Cubit
+  //convert game state to json (serialize)
   Map<String, dynamic> toJson() {
     return {
       'board': board,
@@ -59,17 +83,39 @@ class GameState {
     };
   }
 
-  // Check if a move is valid
+  void updateFromJson(Map<String, dynamic> json) {
+    // Handle the board data properly
+    List<dynamic> jsonBoard = json['board'];
+    for (int i = 0; i < ROWS; i++) {
+      List<dynamic> row = jsonBoard[i];
+      for (int j = 0; j < COLUMNS; j++) {
+        board[i][j] = row[j];
+      }
+    }
+
+    isMyTurn = !json['isMyTurn']; //invert
+    gameOver = json['gameOver'] ?? false;
+    winner = json['winner'];
+
+    // Update scores from server
+    playerScore = json['opponentScore'] ?? 0;  //OUR score is server's opponent score
+    opponentScore = json['playerScore'] ?? 0;  //OPPONENT score is server's player score
+  }
+
+  //check if a move is valid
+  //(a move is only valid if there are still empty slots in the chosen column)
   bool isValidMove(int column) {
     if (column < 0 || column >= COLUMNS) return false;
     return board[0][column] == EMPTY; // Check if the top cell in the column is empty
   }
 
-  // Add a piece to the specified column
+  //if the move is valid, drop the token into the specified column
+  //returns false if the game is NOT over
+  //returns true if the game is OVER
   bool makeMove(int column, int playerColor) {
     if (!isValidMove(column)) return false;
 
-    // Find the lowest empty cell in the column
+    //find the lowest empty cell in the column
     int row = ROWS - 1;
     while (row >= 0 && board[row][column] != EMPTY) {
       row--;
@@ -83,20 +129,22 @@ class GameState {
     return false;
   }
 
-  // Check if the game is over after a move
+  //check if the game is over after a move
+  //if true, set gameOver to true
+  //and set the winner
   void checkGameOver(int lastRow, int lastColumn, int playerColor) {
-    // Check horizontal
+    //check horizontal
     if (checkDirection(lastRow, lastColumn, 0, 1, playerColor) ||
-        // Check vertical
+        //check vertical
         checkDirection(lastRow, lastColumn, 1, 0, playerColor) ||
-        // Check diagonal /
+        //check diagonal -->
         checkDirection(lastRow, lastColumn, -1, 1, playerColor) ||
-        // Check diagonal \
+        //check diagonal <--
         checkDirection(lastRow, lastColumn, 1, 1, playerColor)) {
       gameOver = true;
       winner = playerColor;
 
-      // Update scores when game ends with a winner
+      //update player scores if gameOver was set to true in previous if statement ^^
       if (winner == RED) {
         playerScore += 1;
       } else if (winner == YELLOW) {
@@ -106,7 +154,8 @@ class GameState {
       return;
     }
 
-    // Check for draw (board is full)
+    //check for draw??
+    //(this only happens when the board is completely filled and no one can make a move anymore)
     bool isFull = true;
     for (int col = 0; col < COLUMNS; col++) {
       if (board[0][col] == EMPTY) {
@@ -117,15 +166,16 @@ class GameState {
 
     if (isFull) {
       gameOver = true;
-      winner = null; // Draw
+      winner = null; //set draw
     }
   }
 
-  // Check if there are 4 in a row in a specific direction
+  //check if there are 4 in a row in a specific direction
   bool checkDirection(int row, int col, int rowDir, int colDir, int playerColor) {
-    int count = 1; // Start with 1 (the piece we just placed)
+    int count = 1; //start counting how many pieces there are in that direction
+                  //but start with the count at 1 since we just placed one
 
-    // Check in one direction
+    //check in one direction
     int r = row + rowDir;
     int c = col + colDir;
     while (r >= 0 && r < ROWS && c >= 0 && c < COLUMNS && board[r][c] == playerColor) {
@@ -134,7 +184,7 @@ class GameState {
       c += colDir;
     }
 
-    // Check in the opposite direction
+    //check opp direction
     r = row - rowDir;
     c = col - colDir;
     while (r >= 0 && r < ROWS && c >= 0 && c < COLUMNS && board[r][c] == playerColor) {
@@ -146,7 +196,7 @@ class GameState {
     return count >= 4;
   }
 
-  // Reset just the board but keep scores
+  //reset just the board but keep scores
   void resetBoard() {
     board = List.generate(ROWS, (_) => List.filled(COLUMNS, EMPTY));
     isMyTurn = true;
@@ -154,111 +204,8 @@ class GameState {
     winner = null;
   }
 }
-/*class GameState{
-  List<List<int>> board = List.generate(ROWS, (_) => List.filled(COLUMNS, EMPTY));
-  bool isMyTurn = true; // Server starts the game
-  int myColor = RED;
-  int opponentColor = YELLOW;
-  bool gameOver = false;
-  int? winner;
 
-  GameState();
-
-  // Convert to json
-  Map<String, dynamic> toJson() {
-    return {
-      'board': board,
-      'isMyTurn': isMyTurn,
-      'gameOver': gameOver,
-      'winner': winner,
-    };
-  }
-
-  // Check if a move is valid
-  bool isValidMove(int column) {
-    if (column < 0 || column >= COLUMNS) return false;
-    return board[0][column] == EMPTY; // Check if the top cell in the column is empty
-  }
-
-  // Add a piece to the specified column
-  bool makeMove(int column, int playerColor) {
-    if (!isValidMove(column)) return false;
-
-    // Find the lowest empty cell in the column
-    int row = ROWS - 1;
-    while (row >= 0 && board[row][column] != EMPTY) {
-      row--;
-    }
-
-    if (row >= 0) {
-      board[row][column] = playerColor;
-      checkGameOver(row, column, playerColor);
-      return true;
-    }
-    return false;
-  }
-
-  // Check if the game is over after a move
-  void checkGameOver(int lastRow, int lastColumn, int playerColor) {
-    // Check horizontal
-    if (checkDirection(lastRow, lastColumn, 0, 1, playerColor) ||
-        // Check vertical
-        checkDirection(lastRow, lastColumn, 1, 0, playerColor) ||
-        // Check diagonal /
-        checkDirection(lastRow, lastColumn, -1, 1, playerColor) ||
-        // Check diagonal \
-        checkDirection(lastRow, lastColumn, 1, 1, playerColor)) {
-      gameOver = true;
-      winner = playerColor;
-      //if( playerColor == RED ){
-        //play win sound effect
-        //AState( AudioPlayer() ).playWinSoundEffect();
-      //}
-      return;
-    }
-
-    // Check for draw (board is full)
-    bool isFull = true;
-    for (int col = 0; col < COLUMNS; col++) {
-      if (board[0][col] == EMPTY) {
-        isFull = false;
-        break;
-      }
-    }
-
-    if (isFull) {
-      gameOver = true;
-      winner = null; // Draw
-    }
-  }
-
-  // Check if there are 4 in a row in a specific direction
-  bool checkDirection(int row, int col, int rowDir, int colDir, int playerColor) {
-    int count = 1; // Start with 1 (the piece we just placed)
-
-    // Check in one direction
-    int r = row + rowDir;
-    int c = col + colDir;
-    while (r >= 0 && r < ROWS && c >= 0 && c < COLUMNS && board[r][c] == playerColor) {
-      count++;
-      r += rowDir;
-      c += colDir;
-    }
-
-    // Check in the opposite direction
-    r = row - rowDir;
-    c = col - colDir;
-    while (r >= 0 && r < ROWS && c >= 0 && c < COLUMNS && board[r][c] == playerColor) {
-      count++;
-      r -= rowDir;
-      c -= colDir;
-    }
-
-    return count >= 4;
-  }
-}*/
-
-// Bloc state
+//Bloc state
 class ConnectionState {
   bool listening = false;
   Socket? theClient = null;
@@ -268,10 +215,40 @@ class ConnectionState {
   ConnectionState(this.listening, this.theClient, this.listened, this.gameState);
 }
 
-class ConnectionCubit extends Cubit<ConnectionState> {
+//use Hydrated Cubit to allow state persistence across sessions
+class ConnectionCubit extends HydratedCubit<ConnectionState> {
   ConnectionCubit() : super(ConnectionState(false, null, false, GameState())) {
     if (state.theClient == null) {
       connect();
+    }
+
+  }
+  //ONLY save the game state across sessions
+  //DON'T save if we're connected to the client
+  @override
+  Map<String, dynamic>? toJson(ConnectionState state) {
+    return {
+      //'listening': state.listening, --> should not serialize this since we need to reconnect when we run an app again
+      //'listened': state.listened, --> also don't serialize this
+      'gameState': state.gameState.toJson(),
+
+    };
+  }
+
+  //deserialize for hydrated cubit
+  @override
+  ConnectionState? fromJson(Map<String, dynamic> json) {
+    try {
+      return ConnectionState(
+        //json['listening'] as bool,
+        false,
+        null, // Socket can't be serialized
+        //json['listened'] as bool,
+        false,
+        GameState()..fromJson(json['gameState']),
+      );
+    } catch (_) {
+      return null;
     }
   }
 
@@ -298,26 +275,26 @@ class ConnectionCubit extends Cubit<ConnectionState> {
 
     if (gameState.isMyTurn && !gameState.gameOver && gameState.isValidMove(column)) {
       if (gameState.makeMove(column, RED)) {
-        // Find the row where the token landed
+        //find the row where the token landed
         int lastRow = -1;
         for (int r = 0; r < ROWS; r++) {
           if (gameState.board[r][column] == RED) {
             lastRow = r;
-            break;  // Find the topmost row with the token
+            break;  //grab the topmost row with the token
           }
         }
 
-        // Play sound effect based on game state
+        //play sound effect based on game state
         if (gameState.gameOver && gameState.winner == RED) {
           AState(AudioPlayer()).playWinSoundEffect();
         } else {
           AState(AudioPlayer()).play();
         }
 
-        // Switch turns
+        //switch turns
         gameState.isMyTurn = false;
 
-        // Send the move to client
+        //send move to client
         if (currentState.theClient != null) {
           Map<String, dynamic> message = {
             'type': 'move',
@@ -327,7 +304,6 @@ class ConnectionCubit extends Cubit<ConnectionState> {
           currentState.theClient!.write(jsonEncode(message));
         }
 
-        // Update with animation tracking
         updateGameState(gameState, lastRow: lastRow, lastCol: column);
       }
     }
@@ -336,35 +312,43 @@ class ConnectionCubit extends Cubit<ConnectionState> {
   receiveClientMove(Map<String, dynamic> data) {
     final currentState = state;
     final gameState = currentState.gameState;
+    print("Got something from client type ${data['type']}");
 
-    if (data.containsKey('column')) {
+    if (data['type'] == 'reset') {
+      //reset game
+      print( "recieved RESET request from client");
+      if (data.containsKey('gameState')) {
+        gameState.updateFromJson(data['gameState']);
+      }
+    }
+    //else if (data.containsKey('column')) {
+    else if( data['type'] == 'move'){
       int column = data['column'];
 
-      // Update the board with the client's move
+      //update board with client's move
       if (gameState.makeMove(column, YELLOW)) {
-        // Find the row where the token landed
+        //find the row where the token landed
         int lastRow = -1;
         for (int r = 0; r < ROWS; r++) {
           if (gameState.board[r][column] == YELLOW) {
             lastRow = r;
-            break;  // Find the topmost row with the token
+            break;  //find the topmost row with the token
           }
         }
 
-        // Play sound effect
+        //play sound effect
         if (gameState.gameOver && gameState.winner == YELLOW) {
           AState(AudioPlayer()).playWinSoundEffect();
         } else {
           AState(AudioPlayer()).play();
         }
 
-        // Switch turns back to server
+        //switch turns back to server
         gameState.isMyTurn = true;
 
-        // Update with animation tracking
         updateGameState(gameState, lastRow: lastRow, lastCol: column);
 
-        // Send acknowledgment to the client
+        //send ack to client
         if (currentState.theClient != null) {
           Map<String, dynamic> ackMessage = {
             'type': 'move_ack',
@@ -376,18 +360,19 @@ class ConnectionCubit extends Cubit<ConnectionState> {
     }
   }
 
+  //reset game when player clicks reset icon
   resetGame() {
     final currentState = state;
     final gameState = currentState.gameState;
 
-    // Save the scores before reset
+    //save player scores before reset
     int playerScore = gameState.playerScore;
     int opponentScore = gameState.opponentScore;
 
-    // Create a new game state but retain scores
+    //create a new game state
     gameState.resetBoard();
 
-    // Send reset message to client
+    //send reset message to client
     if (currentState.theClient != null) {
       Map<String, dynamic> message = {
         'type': 'reset',
@@ -407,7 +392,7 @@ class ConnectionCubit extends Cubit<ConnectionState> {
     server.listen((client) {
       emit(ConnectionState(true, client, state.listened, state.gameState));
 
-      // Send initial state of the game
+      //send initial state of the game
       if (client != null) {
         Map<String, dynamic> message = {
           'type': 'game_init',
@@ -420,125 +405,6 @@ class ConnectionCubit extends Cubit<ConnectionState> {
     emit(ConnectionState(true, null, false, state.gameState));
   }
 }
-/*class ConnectionCubit extends Cubit<ConnectionState> {
-  ConnectionCubit() : super(ConnectionState(false, null, false, GameState())) {
-    if (state.theClient == null) {
-      connect();
-    }
-  }
-
-  update(bool b, Socket s) {
-    emit(ConnectionState(b, s, state.listened, state.gameState));
-  }
-
-  updateListen() {
-    emit(ConnectionState(true, state.theClient, true, state.gameState));
-  }
-
-  updateGameState(GameState gs) {
-    emit(ConnectionState(state.listening, state.theClient, state.listened, gs));
-  }
-
-  makeMove(int column) {
-    final currentState = state;
-    final gameState = currentState.gameState;
-
-    if (gameState.isMyTurn && !gameState.gameOver && gameState.isValidMove(column)) {
-      if (gameState.makeMove(column, RED)) {
-        int lastRow = gameState.board.lastIndexWhere((r) => r[column] == RED);
-        //check for win condition
-        if (gameState.gameOver && gameState.winner == RED) {
-          //play win sound effect
-          AState(AudioPlayer()).playWinSoundEffect();
-        }
-        else{
-          //play sound for regular move
-          //print( "detected win");
-          AState( AudioPlayer() ).play();
-        }
-        //print( "over here" );
-        // Switch turns
-        gameState.isMyTurn = false;
-
-        // Send the move to client
-        if (currentState.theClient != null) {
-          Map<String, dynamic> message = {
-            'type': 'move',
-            'column': column,
-            'gameState': gameState.toJson(),
-          };
-          currentState.theClient!.write(jsonEncode(message));
-        }
-
-        updateGameState(gameState);
-        //updateGameState(gameState, lastRow: lastRow, lastCol: column);
-      }
-    }
-  }
-
-  receiveClientMove(Map<String, dynamic> data) {
-    final currentState = state;
-    final gameState = currentState.gameState;
-
-    if (data.containsKey('column')) {
-      int column = data['column'];
-
-      // Update the board with the client's move
-      if (gameState.makeMove(column, YELLOW)) {
-        // Switch turns back to server
-        gameState.isMyTurn = true;
-
-        updateGameState(gameState);
-
-        // Send acknowledgment to the client
-        if (currentState.theClient != null) {
-          Map<String, dynamic> ackMessage = {
-            'type': 'move_ack',
-            'gameState': gameState.toJson(),
-          };
-          currentState.theClient!.write(jsonEncode(ackMessage));
-        }
-      }
-    }
-  }
-
-  resetGame() {
-    final currentState = state;
-    final newGameState = GameState();
-
-    // Send reset message to client
-    if (currentState.theClient != null) {
-      Map<String, dynamic> message = {
-        'type': 'reset',
-        'gameState': newGameState.toJson(),
-      };
-      currentState.theClient!.write(jsonEncode(message));
-    }
-
-    emit(ConnectionState(state.listening, state.theClient, state.listened, newGameState));
-  }
-
-  Future<void> connect() async {
-    await Future.delayed(const Duration(seconds: 2));
-    final server = await ServerSocket.bind(InternetAddress.anyIPv4, 9203);
-    print("Connect 4 server started and waiting for a player to join...");
-
-    server.listen((client) {
-      emit(ConnectionState(true, client, state.listened, state.gameState));
-
-      // Send initial state of the game
-      if (client != null) {
-        Map<String, dynamic> message = {
-          'type': 'game_init',
-          'gameState': state.gameState.toJson(),
-        };
-        client.write(jsonEncode(message));
-      }
-    });
-
-    emit(ConnectionState(true, null, false, state.gameState));
-  }
-}*/
 
 class SaidState {
   String said;
@@ -554,11 +420,21 @@ class SaidCubit extends Cubit<SaidState> {
   }
 }
 
-void main() {
-  runApp(Connect4Server());
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  Directory addx = await getApplicationDocumentsDirectory();
+  String add = addx.path;
+  HydratedBloc.storage = await HydratedStorage.build
+    ( storageDirectory: HydratedStorageDirectory
+      ( (await getApplicationDocumentsDirectory()).path,),
+  );
+  runApp(const Connect4Server());
 }
 
 class Connect4Server extends StatelessWidget {
+
+  static const String header = "Connect4Server";
+  const Connect4Server( {super.key} );
   @override
   Widget build(BuildContext context) {
 
@@ -574,7 +450,10 @@ class Connect4Server extends StatelessWidget {
           builder: (context, state) => BlocProvider<SaidCubit>(
             create: (context) => SaidCubit(),
             child: BlocBuilder<SaidCubit, SaidState>(
-              builder: (context, state) => Connect4ServerUI(),
+              //builder: (context, state) => Connect4ServerUI(),
+              builder: (context, state ){
+                return Connect4ServerUI(title: header);
+              }
             ),
           ),
         ),
@@ -582,253 +461,10 @@ class Connect4Server extends StatelessWidget {
     );
   }
 }
-/*class Connect4ServerUI extends StatelessWidget {
-  @override
-  Widget build(BuildContext context) {
-    ConnectionCubit cc = BlocProvider.of<ConnectionCubit>(context);
-    ConnectionState cs = cc.state;
-    SaidCubit sc = BlocProvider.of<SaidCubit>(context);
-
-    if (cs.theClient != null && !cs.listened) {
-      listen(context);
-      cc.updateListen();
-    }
-
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text("Connect 4 - Player 1 (Red)"),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.refresh),
-            onPressed: !cs.gameState.gameOver ? null : () => cc.resetGame(),
-            tooltip: "Reset Game",
-          ),
-        ],
-      ),
-      body: Column(
-        children: [
-          // Score Display
-          Container(
-            padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
-            color: Colors.blue[100],
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Row(
-                  children: [
-                    Container(
-                      width: 20,
-                      height: 20,
-                      decoration: const BoxDecoration(
-                        color: Colors.red,
-                        shape: BoxShape.circle,
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Text(
-                      "You: ${cs.gameState.playerScore}",
-                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-                    ),
-                  ],
-                ),
-                Row(
-                  children: [
-                    Text(
-                      "Opponent: ${cs.gameState.opponentScore}",
-                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-                    ),
-                    const SizedBox(width: 8),
-                    Container(
-                      width: 20,
-                      height: 20,
-                      decoration: const BoxDecoration(
-                        color: Colors.yellow,
-                        shape: BoxShape.circle,
-                      ),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-
-          // Game status
-          Container(
-            padding: const EdgeInsets.all(8),
-            color: cs.gameState.gameOver
-                ? Colors.grey[300]
-                : (cs.gameState.isMyTurn ? Colors.green[100] : Colors.red[100]),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Text(
-                  cs.gameState.gameOver
-                      ? (cs.gameState.winner == RED
-                      ? "You win!"
-                      : (cs.gameState.winner == YELLOW
-                      ? "Opponent wins!"
-                      : "Draw!"))
-                      : (cs.gameState.isMyTurn
-                      ? "Your Turn"
-                      : "Opponent's Turn"),
-                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
-                ),
-              ],
-            ),
-          ),
-
-          // Connect 4 board
-          Expanded(
-            child: Container(
-              margin: const EdgeInsets.all(10),
-              decoration: BoxDecoration(
-                color: Colors.blue[800],
-                borderRadius: BorderRadius.circular(10),
-                border: Border.all(color: Colors.black, width: 2),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withOpacity(0.5),
-                    spreadRadius: 1,
-                    blurRadius: 5,
-                  ),
-                ],
-              ),
-              child: Column(
-                children: [
-                  // Column selector buttons
-                  if (!cs.gameState.gameOver && cs.gameState.isMyTurn)
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                      children: List.generate(COLUMNS, (col) {
-                        bool isValid = cs.gameState.isValidMove(col);
-                        return Expanded(
-                          child: Padding(
-                            padding: const EdgeInsets.symmetric(horizontal: 2.0),
-                            child: IconButton(
-                              icon: const Icon(Icons.arrow_downward),
-                              color: isValid ? Colors.white : Colors.white.withOpacity(0.3),
-                              onPressed: isValid ? () => cc.makeMove(col) : null,
-                              splashColor: Colors.red[300],
-                            ),
-                          ),
-                        );
-                      }),
-                    ),
-                  if (cs.gameState.gameOver || !cs.gameState.isMyTurn)
-                    const SizedBox(height: 48),  // Placeholder for consistent layout
-
-                  // Game board
-                  Expanded(
-                    child: Padding(
-                      padding: const EdgeInsets.all(8.0),
-                      child: GridView.builder(
-                        physics: const NeverScrollableScrollPhysics(), // Prevent scrolling
-                        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                          crossAxisCount: COLUMNS,
-                          childAspectRatio: 1.0,
-                          crossAxisSpacing: 5,
-                          mainAxisSpacing: 5,
-                        ),
-                        itemCount: ROWS * COLUMNS,
-                        itemBuilder: (context, index) {
-                          int row = index ~/ COLUMNS;
-                          int col = index % COLUMNS;
-
-                          // Get the token color and calculate if this is the last placed token
-                          Color tokenColor;
-
-                          if (cs.gameState.board[row][col] == RED) {
-                            tokenColor = Colors.red;
-                          } else if (cs.gameState.board[row][col] == YELLOW) {
-                            tokenColor = Colors.yellow;
-                          } else {
-                            tokenColor = Colors.white;
-                          }
-
-                          // Cell with hole effect
-                          return Stack(
-                            children: [
-                              // Background
-                              Container(
-                                decoration: BoxDecoration(
-                                  color: Colors.blue[800],
-                                  shape: BoxShape.circle,
-                                  border: Border.all(
-                                    color: Colors.blue[900]!,
-                                    width: 2,
-                                  ),
-                                ),
-                              ),
-
-                              // Token (with animation if it's the last placed token)
-                            ],
-                          );
-                        },
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-
-          // Status and reset text
-          Container(
-            padding: const EdgeInsets.all(8),
-            child: Column(
-              children: [
-                cs.theClient != null
-                    ? const Text("Player 2 connected")
-                    : const Text("Waiting for Player 2 to connect..."),
-                if (cs.gameState.gameOver)
-                  Padding(
-                    padding: const EdgeInsets.only(top: 8.0),
-                    child: Text(
-                      "Tap the reset button in the top right to play again",
-                      style: TextStyle(
-                        fontStyle: FontStyle.italic,
-                        color: Colors.grey[700],
-                      ),
-                    ),
-                  ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  void listen(BuildContext bc) {
-    ConnectionCubit cc = BlocProvider.of<ConnectionCubit>(bc);
-    ConnectionState cs = cc.state;
-    SaidCubit sc = BlocProvider.of<SaidCubit>(bc);
-
-    cs.theClient!.listen(
-          (Uint8List data) async {
-        final message = String.fromCharCodes(data);
-        try {
-          Map<String, dynamic> decodedMessage = jsonDecode(message);
-          if (decodedMessage['type'] == 'move') {
-            cc.receiveClientMove(decodedMessage);
-            sc.update("Received move from Player 2");
-          }
-        } catch (e) {
-          sc.update("Error processing message: $e");
-        }
-      },
-      onError: (error) {
-        print(error);
-        sc.update("Connection error: $error");
-      },
-      onDone: () {
-        sc.update("Player 2 disconnected");
-      },
-    );
-  }
-}*/
 
 class Connect4ServerUI extends StatelessWidget {
+  final String title;
+  const Connect4ServerUI( {super.key, required this.title} );
   @override
   Widget build(BuildContext context) {
     ConnectionCubit cc = BlocProvider.of<ConnectionCubit>(context);
@@ -857,7 +493,7 @@ class Connect4ServerUI extends StatelessWidget {
           IconButton(
             icon: Icon(Icons.refresh),
             onPressed: () => {
-              print( "request to reset game"),
+              //print( "request to reset game"),
               cc.resetGame()
             },
             tooltip: "Reset Game",
@@ -905,7 +541,7 @@ class Connect4ServerUI extends StatelessWidget {
               ],
             ),
           ),
-          // Game status
+          //connect4 status
           Container(
             padding: EdgeInsets.all(8), //EdgeInsets.all(8)
             color: cs.gameState.gameOver
@@ -930,7 +566,6 @@ class Connect4ServerUI extends StatelessWidget {
             ),
           ),
 
-          // Connect 4 board
           Expanded(
           //Container(
             child: Container(
@@ -965,7 +600,7 @@ class Connect4ServerUI extends StatelessWidget {
                   if (cs.gameState.gameOver || !cs.gameState.isMyTurn)
                     SizedBox(height: 48),  // 48 Placeholder for consistent layout
 
-                  // Game board
+                  // board
                   Expanded(
                   //Container(
                     child: GridView.builder(
@@ -981,7 +616,6 @@ class Connect4ServerUI extends StatelessWidget {
                         int row = index ~/ COLUMNS;
                         int col = index % COLUMNS;
 
-                        // We need to invert the rows since Connect 4 has the origin at the bottom
                         int displayRow = /*ROWS - 1 -*/ row;
 
                         return Container(
@@ -1035,12 +669,16 @@ class Connect4ServerUI extends StatelessWidget {
             cc.receiveClientMove(decodedMessage);
             sc.update("Received move from Player 2");
           }
+          else if (decodedMessage['type'] == 'reset') {
+            cc.receiveClientMove(decodedMessage);
+            sc.update("Game has been reset");
+          }
         } catch (e) {
           sc.update("Error processing message: $e");
         }
       },
       onError: (error) {
-        print(error);
+        //print(error);
         sc.update("Connection error: $error");
       },
       onDone: () {
