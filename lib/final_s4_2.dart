@@ -4,6 +4,7 @@
 //heidi- final project
 
 import 'dart:io';
+import 'dart:math';
 import 'dart:typed_data';
 import 'dart:convert';
 
@@ -46,6 +47,7 @@ class GameState {
   int opponentColor = YELLOW; //client plays YELLOW
   bool gameOver = false; //the game is initially NOT over
   int? winner; //and we're initially NOT the winner
+  bool bomb = false;
 
   //vv-- keep track of scores --v
   int playerScore = 0;
@@ -96,7 +98,7 @@ class GameState {
     isMyTurn = !json['isMyTurn']; //invert
     gameOver = json['gameOver'] ?? false;
     winner = json['winner'];
-
+    bomb = false;
     // Update scores from server
     playerScore = json['opponentScore'] ?? 0;  //OUR score is server's opponent score
     opponentScore = json['playerScore'] ?? 0;  //OPPONENT score is server's player score
@@ -112,16 +114,35 @@ class GameState {
   //if the move is valid, drop the token into the specified column
   //returns false if the game is NOT over
   //returns true if the game is OVER
-  bool makeMove(int column, int playerColor) {
+  bool makeMove(int column, int playerColor, bool givenBomb ) {
     if (!isValidMove(column)) return false;
-
-    //find the lowest empty cell in the column
+    if( playerColor == RED ){
+      bool currBomb = Random().nextDouble() < 0.25;
+      if( currBomb ){
+        bomb = true;
+        givenBomb = true;
+      }
+    }
     int row = ROWS - 1;
-    while (row >= 0 && board[row][column] != EMPTY) {
-      row--;
+    if( givenBomb ){
+      //clear out the whole column
+      for( int k = ROWS-1; k >= 0; k -- ){
+        if( board[k][column] == EMPTY ) break;
+        board[k][column] = EMPTY;
+      }
+      row = ROWS-1;
+      //print( "recieved BOMB, clearing out column ");
+      //bomb = false;
+    }
+    else{
+      //find the lowest empty cell in the column
+      while (row >= 0 && board[row][column] != EMPTY) {
+        row--;
+      }
     }
 
     if (row >= 0) {
+      //print( "placing " + playerColor.toString()+ " in row " + row.toString() );
       board[row][column] = playerColor;
       checkGameOver(row, column, playerColor);
       return true;
@@ -260,7 +281,7 @@ class ConnectionCubit extends HydratedCubit<ConnectionState> {
     emit(ConnectionState(true, state.theClient, true, state.gameState));
   }
 
-  updateGameState(GameState gs, {int? lastRow, int? lastCol}) {
+  updateGameState(GameState gs) {
     emit(ConnectionState(
       state.listening,
       state.theClient,
@@ -274,15 +295,7 @@ class ConnectionCubit extends HydratedCubit<ConnectionState> {
     final gameState = currentState.gameState;
 
     if (gameState.isMyTurn && !gameState.gameOver && gameState.isValidMove(column)) {
-      if (gameState.makeMove(column, RED)) {
-        //find the row where the token landed
-        int lastRow = -1;
-        for (int r = 0; r < ROWS; r++) {
-          if (gameState.board[r][column] == RED) {
-            lastRow = r;
-            break;  //grab the topmost row with the token
-          }
-        }
+      if (gameState.makeMove(column, RED, false )) {
 
         //play sound effect based on game state
         if (gameState.gameOver && gameState.winner == RED) {
@@ -303,8 +316,8 @@ class ConnectionCubit extends HydratedCubit<ConnectionState> {
           };
           currentState.theClient!.write(jsonEncode(message));
         }
-
-        updateGameState(gameState, lastRow: lastRow, lastCol: column);
+        gameState.bomb = false;
+        updateGameState(gameState);
       }
     }
   }
@@ -312,11 +325,11 @@ class ConnectionCubit extends HydratedCubit<ConnectionState> {
   receiveClientMove(Map<String, dynamic> data) {
     final currentState = state;
     final gameState = currentState.gameState;
-    print("Got something from client type ${data['type']}");
+    //print("Got something from client type ${data['type']}");
 
     if (data['type'] == 'reset') {
       //reset game
-      print( "recieved RESET request from client");
+      //print( "recieved RESET request from client");
       if (data.containsKey('gameState')) {
         gameState.updateFromJson(data['gameState']);
       }
@@ -324,16 +337,18 @@ class ConnectionCubit extends HydratedCubit<ConnectionState> {
     //else if (data.containsKey('column')) {
     else if( data['type'] == 'move'){
       int column = data['column'];
-
-      //update board with client's move
-      if (gameState.makeMove(column, YELLOW)) {
+      bool bomb = data['bomb'];
+      //update b|oard with client's move
+      if (gameState.makeMove(column, YELLOW, bomb)) {
         //find the row where the token landed
         int lastRow = -1;
-        for (int r = 0; r < ROWS; r++) {
-          if (gameState.board[r][column] == YELLOW) {
-            lastRow = r;
-            break;  //find the topmost row with the token
-          }
+
+          for (int r = 0; r < ROWS; r++) {
+            if (gameState.board[r][column] == YELLOW) {
+              lastRow = r;
+              break;  //find the topmost row with the token
+            }
+          //}
         }
 
         //play sound effect
@@ -346,7 +361,7 @@ class ConnectionCubit extends HydratedCubit<ConnectionState> {
         //switch turns back to server
         gameState.isMyTurn = true;
 
-        updateGameState(gameState, lastRow: lastRow, lastCol: column);
+        updateGameState(gameState);
 
         //send ack to client
         if (currentState.theClient != null) {

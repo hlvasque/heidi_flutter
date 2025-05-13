@@ -46,6 +46,7 @@ class GameState {
   int opponentColor = RED;
   bool gameOver = false;
   int? winner;
+  bool bomb = false;
 
   //vv-- keep track of scores --vv
   int playerScore = 0;  //client (us)
@@ -92,6 +93,7 @@ class GameState {
     isMyTurn = !json['isMyTurn']; //invert
     gameOver = json['gameOver'] ?? false;
     winner = json['winner'];
+    bomb = false;
 
     // Update scores from server
     playerScore = json['opponentScore'] ?? 0;  //OUR score is server's opponent score
@@ -109,33 +111,36 @@ class GameState {
   bool makeMove(int column, int playerColor) {
     if (!isValidMove(column)) return false;
 
-    //there's a 25% chance that the move is a bomb move
-    //a bomb move clears out the column beneath it
-    /*print( "making a move" );
-    if (Random().nextDouble() < 1) {
-      print( "doing bomb move" );
-      //bomb token
-      int row = ROWS -1;
-      while( row >= 0 && board[row][column] != EMPTY ) {
-        row --;
-        board[row][column] = EMPTY;
-      }
-      print("done doing bomb move" );
-      return true;
-    }*/
+    bool isBomb = Random().nextDouble() < 0.25;
+    if( isBomb ) bomb = true;
+    int row = ROWS - 1;
 
-      //find the lowest empty cell in the column
-      int row = ROWS - 1;
+    /*if (isBomb) {
+      print("doing bomb move");
+      while (row >= 0) {
+        print("clearing row,col: $row,$column");
+        board[row][column] = EMPTY;
+        row--;
+      }
+      print("done doing bomb move");
+      // reset row back to bottom
+      row =ROWS-1;
+      board[row][column] = playerColor;
+    } else {*/
       while (row >= 0 && board[row][column] != EMPTY) {
         row--;
       }
+      if( row < 0 ) return false;
+      //if (row >= 0) {
+        //board[row][column] = playerColor;
+      //} else {
+        //return false;
+      //}
 
-      if (row >= 0) {
-        board[row][column] = playerColor;
-        checkGameOver(row, column, playerColor);
-        return true;
-      }
-      return false;
+   // }
+
+    checkGameOver(row, column, playerColor);
+    return true;
   }
 
 
@@ -210,6 +215,7 @@ class GameState {
     isMyTurn = false;
     gameOver = false;
     winner = null;
+    bomb = false;
   }
 }
 
@@ -237,25 +243,15 @@ class ConnectionCubit extends Cubit<ConnectionState> {
     emit(ConnectionState(state.theServer, true, state.gameState));
   }
 
-  updateGameState(GameState gs, {int? lastRow, int? lastCol}) {
+  updateGameState(GameState gs) {
     emit(ConnectionState(state.theServer, state.listened, gs));
   }
 
   makeMove(int column) {
     final currentState = state;
     final gameState = currentState.gameState;
-
     if (gameState.isMyTurn && !gameState.gameOver && gameState.isValidMove(column)) {
       if (gameState.makeMove(column, YELLOW)) {
-        // Find the row where the token landed
-        int lastRow = -1;
-        for (int r = 0; r < ROWS; r++) {
-          if (gameState.board[r][column] == YELLOW) {
-            lastRow = r;
-            break;  //find the top row with the token
-          }
-        }
-
         //play sound effect
         if (gameState.gameOver && gameState.winner == YELLOW) {
           AState(AudioPlayer()).playWinSoundEffect();
@@ -271,11 +267,11 @@ class ConnectionCubit extends Cubit<ConnectionState> {
           Map<String, dynamic> message = {
             'type': 'move',
             'column': column,
+            'bomb': gameState.bomb
           };
           currentState.theServer!.write(jsonEncode(message));
         }
-
-        updateGameState(gameState, lastRow: lastRow, lastCol: column);
+        gameState.bomb = false;
       }
     }
   }
@@ -330,7 +326,7 @@ class ConnectionCubit extends Cubit<ConnectionState> {
     gameState.resetBoard();
 
     //send reset message to client
-    print( "sent reset request to server" );
+    //print( "sent reset request to server" );
     if (currentState.theServer != null) {
       Map<String, dynamic> message = {
         'type': 'reset',
@@ -531,7 +527,6 @@ class Connect4ClientUI extends StatelessWidget {
                   if (cs.gameState.gameOver || !cs.gameState.isMyTurn)
                     SizedBox(height: 48),  // 48 Placeholder for consistent layout
 
-                  //connect4 board
                   Expanded(
                     child: GridView.builder(
                       padding: EdgeInsets.all(8),
@@ -546,9 +541,13 @@ class Connect4ClientUI extends StatelessWidget {
                         int row = index ~/ COLUMNS;
                         int col = index % COLUMNS;
 
-                        int displayRow = /*ROWS - 1 -*/ row;
+                        // Ensure we're using the correct orientation for the board
+                        int displayRow = row;
 
+                        // Create a unique key for each cell that changes when the cell's content changes
                         return Container(
+                          // This key ensures the widget rebuilds when any cell in the column changes
+                          //key: ValueKey('cell_${displayRow}_${col}_${cs.gameState.board[displayRow][col]}'),
                           decoration: BoxDecoration(
                             color: Colors.blue[800],
                             shape: BoxShape.circle,
@@ -568,8 +567,6 @@ class Connect4ClientUI extends StatelessWidget {
                       },
                     ),
                   ),
-
-
                 ],
               ),
             ),
