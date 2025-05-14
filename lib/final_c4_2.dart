@@ -34,6 +34,9 @@ class AState {
     //this is the sound effect when a player wins
     thep.play(AssetSource('connect4_win_sound_effect.mp4'));
   }
+  void playBombSoundEffect() {
+    thep.play(AssetSource('bomb_sound_effect.mp4'));
+  }
 }
 
 //keeps track of the current game
@@ -111,38 +114,32 @@ class GameState {
   bool makeMove(int column, int playerColor) {
     if (!isValidMove(column)) return false;
 
-    bool isBomb = Random().nextDouble() < 0.25;
-    if( isBomb ) bomb = true;
+    // Generate bomb with 25% probability
+    bomb = Random().nextDouble() < 0.1;
+
     int row = ROWS - 1;
 
-    /*if (isBomb) {
-      print("doing bomb move");
-      while (row >= 0) {
-        print("clearing row,col: $row,$column");
-        board[row][column] = EMPTY;
-        row--;
+    if (bomb) {
+      // Clear out the whole column
+      for (int k = ROWS-1; k >= 0; k--) {
+        if (board[k][column] == EMPTY) break;
+        board[k][column] = EMPTY;
       }
-      print("done doing bomb move");
-      // reset row back to bottom
-      row =ROWS-1;
-      board[row][column] = playerColor;
-    } else {*/
+      row = ROWS - 1;
+    } else {
+      // Find the lowest empty cell in the column
       while (row >= 0 && board[row][column] != EMPTY) {
         row--;
       }
-      if( row < 0 ) return false;
-      //if (row >= 0) {
-        //board[row][column] = playerColor;
-      //} else {
-        //return false;
-      //}
+    }
 
-   // }
-
-    checkGameOver(row, column, playerColor);
-    return true;
+    if (row >= 0) {
+      board[row][column] = playerColor;
+      checkGameOver(row, column, playerColor);
+      return true;
+    }
+    return false;
   }
-
 
 
   //check if game over after a move
@@ -252,17 +249,19 @@ class ConnectionCubit extends Cubit<ConnectionState> {
     final gameState = currentState.gameState;
     if (gameState.isMyTurn && !gameState.gameOver && gameState.isValidMove(column)) {
       if (gameState.makeMove(column, YELLOW)) {
-        //play sound effect
+        // Play sound effect
         if (gameState.gameOver && gameState.winner == YELLOW) {
           AState(AudioPlayer()).playWinSoundEffect();
+        } else if (gameState.bomb) {
+          AState(AudioPlayer()).playBombSoundEffect();
         } else {
           AState(AudioPlayer()).play();
         }
 
-        //switch turns
+        // Switch turns
         gameState.isMyTurn = false;
 
-        //send move to server
+        // Send move to server
         if (currentState.theServer != null) {
           Map<String, dynamic> message = {
             'type': 'move',
@@ -271,40 +270,46 @@ class ConnectionCubit extends Cubit<ConnectionState> {
           };
           currentState.theServer!.write(jsonEncode(message));
         }
-        gameState.bomb = false;
+
+        updateGameState(gameState);
       }
     }
   }
 
+//update the receiveServerData method in the client's ConnectionCubit
   receiveServerData(Map<String, dynamic> data) {
     final currentState = state;
     final gameState = currentState.gameState;
 
     if (data['type'] == 'game_init') {
-      //initialize game with server data
+      // Initialize game with server data
       if (data.containsKey('gameState')) {
         gameState.updateFromJson(data['gameState']);
       }
     } else if (data['type'] == 'move') {
-      //server made a move
+      // Server made a move
+      bool bomb = data['bomb'] ?? false;
+
       if (data.containsKey('gameState')) {
         gameState.updateFromJson(data['gameState']);
       }
 
-      //play sound effect baed on servser's move
+      // Play sound effect based on server's move
       if (gameState.gameOver && gameState.winner == RED) {
         AState(AudioPlayer()).playWinSoundEffect();
+      } else if (bomb) {
+        AState(AudioPlayer()).playBombSoundEffect();
       } else {
         AState(AudioPlayer()).play();
       }
 
     } else if (data['type'] == 'move_ack') {
-      //send ack
+      // Handle acknowledgment
       if (data.containsKey('gameState')) {
         gameState.updateFromJson(data['gameState']);
       }
     } else if (data['type'] == 'reset') {
-      //reset game
+      // Reset game
       if (data.containsKey('gameState')) {
         gameState.updateFromJson(data['gameState']);
       }

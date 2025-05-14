@@ -35,6 +35,10 @@ class AState
     //this is the sound effect when a player wins
     thep.play( AssetSource('connect4_win_sound_effect.mp4'));
   }
+
+  void playBombSoundEffect() {
+    thep.play(AssetSource('bomb_sound_effect.mp4'));
+  }
 }
 
 //keeps track of the current game
@@ -114,35 +118,32 @@ class GameState {
   //if the move is valid, drop the token into the specified column
   //returns false if the game is NOT over
   //returns true if the game is OVER
-  bool makeMove(int column, int playerColor, bool givenBomb ) {
+  bool makeMove(int column, int playerColor, bool givenBomb) {
     if (!isValidMove(column)) return false;
-    if( playerColor == RED ){
-      bool currBomb = Random().nextDouble() < 0.25;
-      if( currBomb ){
-        bomb = true;
-        givenBomb = true;
-      }
+
+    // Set bomb state based on input or random chance for RED player
+    if (playerColor == RED && !givenBomb) {
+      bomb = Random().nextDouble() < 0.1;
+    } else {
+      bomb = givenBomb;
     }
+
     int row = ROWS - 1;
-    if( givenBomb ){
-      //clear out the whole column
-      for( int k = ROWS-1; k >= 0; k -- ){
-        if( board[k][column] == EMPTY ) break;
+    if (bomb) {
+      // Clear out the whole column
+      for (int k = ROWS-1; k >= 0; k--) {
+        if (board[k][column] == EMPTY) break;
         board[k][column] = EMPTY;
       }
       row = ROWS-1;
-      //print( "recieved BOMB, clearing out column ");
-      //bomb = false;
-    }
-    else{
-      //find the lowest empty cell in the column
+    } else {
+      // Find the lowest empty cell in the column
       while (row >= 0 && board[row][column] != EMPTY) {
         row--;
       }
     }
 
     if (row >= 0) {
-      //print( "placing " + playerColor.toString()+ " in row " + row.toString() );
       board[row][column] = playerColor;
       checkGameOver(row, column, playerColor);
       return true;
@@ -295,28 +296,30 @@ class ConnectionCubit extends HydratedCubit<ConnectionState> {
     final gameState = currentState.gameState;
 
     if (gameState.isMyTurn && !gameState.gameOver && gameState.isValidMove(column)) {
-      if (gameState.makeMove(column, RED, false )) {
-
-        //play sound effect based on game state
+      if (gameState.makeMove(column, RED, false)) {
+        // Play sound effect based on game state
         if (gameState.gameOver && gameState.winner == RED) {
           AState(AudioPlayer()).playWinSoundEffect();
+        } else if (gameState.bomb) {
+          AState(AudioPlayer()).playBombSoundEffect();
         } else {
           AState(AudioPlayer()).play();
         }
 
-        //switch turns
+        // Switch turns
         gameState.isMyTurn = false;
 
-        //send move to client
+        // Send move to client with bomb information
         if (currentState.theClient != null) {
           Map<String, dynamic> message = {
             'type': 'move',
             'column': column,
+            'bomb': gameState.bomb,
             'gameState': gameState.toJson(),
           };
           currentState.theClient!.write(jsonEncode(message));
         }
-        gameState.bomb = false;
+
         updateGameState(gameState);
       }
     }
@@ -325,45 +328,33 @@ class ConnectionCubit extends HydratedCubit<ConnectionState> {
   receiveClientMove(Map<String, dynamic> data) {
     final currentState = state;
     final gameState = currentState.gameState;
-    //print("Got something from client type ${data['type']}");
 
     if (data['type'] == 'reset') {
-      //reset game
-      //print( "recieved RESET request from client");
+      // Handle reset request
       if (data.containsKey('gameState')) {
         gameState.updateFromJson(data['gameState']);
       }
-    }
-    //else if (data.containsKey('column')) {
-    else if( data['type'] == 'move'){
+    } else if (data['type'] == 'move') {
       int column = data['column'];
-      bool bomb = data['bomb'];
-      //update b|oard with client's move
+      bool bomb = data['bomb'] ?? false;
+
+      // Update board with client's move
       if (gameState.makeMove(column, YELLOW, bomb)) {
-        //find the row where the token landed
-        int lastRow = -1;
-
-          for (int r = 0; r < ROWS; r++) {
-            if (gameState.board[r][column] == YELLOW) {
-              lastRow = r;
-              break;  //find the topmost row with the token
-            }
-          //}
-        }
-
-        //play sound effect
+        // Play sound effect based on outcome
         if (gameState.gameOver && gameState.winner == YELLOW) {
           AState(AudioPlayer()).playWinSoundEffect();
+        } else if (bomb) {
+          AState(AudioPlayer()).playBombSoundEffect();
         } else {
           AState(AudioPlayer()).play();
         }
 
-        //switch turns back to server
+        // Switch turns back to server
         gameState.isMyTurn = true;
 
         updateGameState(gameState);
 
-        //send ack to client
+        // Send acknowledgment to client with updated game state
         if (currentState.theClient != null) {
           Map<String, dynamic> ackMessage = {
             'type': 'move_ack',

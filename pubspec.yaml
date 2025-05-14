@@ -80,7 +80,7 @@ flutter:
     - assets/y.mp4
     - assets/connect4_sound_effect.mp4
     - assets/connect4_win_sound_effect.mp4
-
+    - assets/bomb_sound_effect.mp4
 
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/to/resolution-aware-images
